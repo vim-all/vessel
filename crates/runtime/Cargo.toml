@@ -1,0 +1,8 @@
+[package]
+name = "runtime"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+namespaces = { path = "../namespaces" }
+nix = "0.27"
