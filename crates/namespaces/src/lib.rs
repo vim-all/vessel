@@ -6,6 +6,8 @@ use std::ffi::CString;
 use std::process::exit;
 use std::fs::{create_dir_all, write};
 use std::path::Path;
+use std::process::Command;
+use nix::unistd::{pipe, read, write as fd_write};
 
 const STACK_SIZE: usize = 1024 * 1024;
 
@@ -52,25 +54,66 @@ fn setup_cgroup(pid: i32) -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
+fn setup_network(pid: i32) -> Result<(), Box<dyn std::error::Error>> {
+    let veth_host = format!("veth{}", pid);
+    let veth_container = format!("veth{}c", pid);
+
+    // Create veth pair
+    Command::new("ip")
+        .args([
+            "link", "add",
+            &veth_host,
+            "type", "veth",
+            "peer", "name", &veth_container
+        ])
+        .status()?;
+
+    // Attach host side to bridge
+    Command::new("ip")
+        .args(["link", "set", &veth_host, "master", "vessel0"])
+        .status()?;
+
+    Command::new("ip")
+        .args(["link", "set", &veth_host, "up"])
+        .status()?;
+
+    // Move container side into net namespace
+    Command::new("ip")
+        .args([
+            "link", "set",
+            &veth_container,
+            "netns", &pid.to_string()
+        ])
+        .status()?;
+
+    Ok(())
+}
+
 pub fn spawn(rootfs: &str, command: &str) -> Result<(), Box<dyn std::error::Error>> {
     let mut stack = vec![0u8; STACK_SIZE];
-
+    let (reader, writer) = pipe()?;
     let child = unsafe {
         clone(
-            Box::new(|| {
+            Box::new(move || {
+                let mut buf = [0u8; 1];
+                read(reader, &mut buf).unwrap();
                 container_init(rootfs, command).unwrap();
                 0
             }),
             &mut stack,
             CloneFlags::CLONE_NEWPID
                 | CloneFlags::CLONE_NEWUTS
-                | CloneFlags::CLONE_NEWNS,
+                | CloneFlags::CLONE_NEWNS
+                | CloneFlags::CLONE_NEWNET,
             Some(libc::SIGCHLD),
         )?
     };
     println!("Spawned container with PID: {}", child);
     setup_cgroup(child.as_raw())?;
     println!("Cgroup setup complete for PID: {}", child);
+
+    setup_network(child.as_raw())?;
+    fd_write(writer, &[1])?;
 
     waitpid(child, None)?;
     Ok(())
@@ -140,6 +183,51 @@ fn container_init(rootfs: &str, command: &str) -> Result<(), Box<dyn std::error:
         MsFlags::empty(),
         None::<&str>,
     )?;
+
+    // Bring loopback up
+    Command::new("ip")
+        .args(["link", "set", "lo", "up"])
+        .status()?;
+
+    // Find the veth interface dynamically
+    let output = Command::new("sh")
+        .args(["-c", "ip -o link show | awk -F': ' '{print $2}' | grep veth"])
+        .output()?;
+
+    let raw_iface = String::from_utf8_lossy(&output.stdout)
+        .lines()
+        .next()
+        .unwrap_or("")
+        .trim()
+        .to_string();
+
+    let iface = raw_iface
+        .split('@')
+        .next()
+        .unwrap_or("")
+        .to_string();
+
+    println!("veth name is found to be: {}", iface);
+    if !iface.is_empty() {
+        Command::new("ip")
+            .args(["link", "set", &iface, "name", "eth0"])
+            .status()?;
+    }
+
+    // Bring eth0 up
+    Command::new("ip")
+        .args(["link", "set", "eth0", "up"])
+        .status()?;
+
+    // Assign IP
+    Command::new("ip")
+        .args(["addr", "add", "10.0.0.2/24", "dev", "eth0"])
+        .status()?;
+
+    // Add default route
+    Command::new("ip")
+        .args(["route", "add", "default", "via", "10.0.0.1"])
+        .status()?;
 
     // Exec the command
     let cmd = CString::new(command).unwrap();
