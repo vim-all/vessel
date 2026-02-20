@@ -23,18 +23,25 @@ fn setup_cgroup(pid: i32) -> Result<(), Box<dyn std::error::Error>> {
     // Enable CPU controller
     write(
         format!("{}/cgroup.subtree_control", vessel_group),
-        "+cpu",
-    )
-    ?;
+        "+cpu +memory",
+    )?;
 
     // Create container-specific cgroup
     create_dir_all(&container_group)?;
 
-    // Limit CPU to 50%
+    // Limit CPU to 2%
     write(
         format!("{}/cpu.max", container_group),
         "2000 100000",
     )?;
+
+    // hard limit memory to 100mb
+    write(format!("{}/memory.max", container_group),
+    "104857600")?;
+
+    // soft limit memory to 80mb
+    write(format!("{}/memory.high", container_group),
+    "83886080")?;
 
     // Add process to cgroup
     write(
@@ -98,6 +105,26 @@ fn container_init(rootfs: &str, command: &str) -> Result<(), Box<dyn std::error:
     pivot_root(".", "./old_root")?;
 
     chdir("/")?;
+
+    create_dir_all("/dev")?;
+
+    mount(
+        Some("devtmpfs"),
+        "/dev",
+        Some("devtmpfs"),
+        MsFlags::empty(),
+        None::<&str>,
+    )?;
+
+    create_dir_all("/dev/shm")?;
+
+    mount(
+        Some("tmpfs"),
+        "/dev/shm",
+        Some("tmpfs"),
+        MsFlags::empty(),
+        Some("size=256m"),
+    )?;
 
     umount2("/old_root", MntFlags::MNT_DETACH)?;
 
