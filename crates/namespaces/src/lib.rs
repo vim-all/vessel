@@ -1,13 +1,13 @@
 use nix::mount::{mount, umount2, MsFlags, MntFlags};
 use nix::sched::{clone, CloneFlags};
-use nix::sys::wait::waitpid;
 use nix::unistd::{chdir, execvp, sethostname, pivot_root};
 use std::ffi::CString;
 use std::process::exit;
-use std::fs::{create_dir_all, write};
+use std::fs::{create_dir_all, write, OpenOptions};
+use std::os::unix::io::IntoRawFd;
 use std::path::Path;
 use std::process::Command;
-use nix::unistd::{pipe, read, write as fd_write};
+use nix::unistd::{pipe, read, write as fd_write, close, dup2};
 
 const STACK_SIZE: usize = 1024 * 1024;
 
@@ -89,18 +89,40 @@ fn setup_network(pid: i32) -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-pub fn spawn(rootfs: &str, command: &str) -> Result<(), Box<dyn std::error::Error>> {
-    let mut stack = vec![0u8; STACK_SIZE];
+pub fn spawn(rootfs: &str, command: &Vec<String>, log_path: &str) -> Result<i32, Box<dyn std::error::Error>> {
+    // Leak the stack so it outlives the parent process in detached mode.
+    // The child runs in a separate process after clone(), so if the parent
+    // returns and frees this Vec, the child would crash.
+    let stack = vec![0u8; STACK_SIZE].into_boxed_slice();
+    let stack: &'static mut [u8] = Box::leak(stack);
+
     let (reader, writer) = pipe()?;
+    let log_path_owned = log_path.to_string();
     let child = unsafe {
         clone(
             Box::new(move || {
+                close(writer).unwrap();
                 let mut buf = [0u8; 1];
                 read(reader, &mut buf).unwrap();
+                close(reader).unwrap();
+
+                // Redirect stdout and stderr to the log file so output
+                // is captured even after the parent process exits.
+                if let Ok(file) = OpenOptions::new()
+                    .create(true)
+                    .append(true)
+                    .open(&log_path_owned)
+                {
+                    let fd = file.into_raw_fd();
+                    let _ = dup2(fd, 1); // stdout
+                    let _ = dup2(fd, 2); // stderr
+                    let _ = close(fd);
+                }
+
                 container_init(rootfs, command).unwrap();
                 0
             }),
-            &mut stack,
+            stack,
             CloneFlags::CLONE_NEWPID
                 | CloneFlags::CLONE_NEWUTS
                 | CloneFlags::CLONE_NEWNS
@@ -108,18 +130,20 @@ pub fn spawn(rootfs: &str, command: &str) -> Result<(), Box<dyn std::error::Erro
             Some(libc::SIGCHLD),
         )?
     };
+    close(reader).unwrap();
+
     println!("Spawned container with PID: {}", child);
     setup_cgroup(child.as_raw())?;
     println!("Cgroup setup complete for PID: {}", child);
 
     setup_network(child.as_raw())?;
     fd_write(writer, &[1])?;
+    close(writer).unwrap();
 
-    waitpid(child, None)?;
-    Ok(())
+    Ok(child.as_raw())
 }
 
-fn container_init(rootfs: &str, command: &str) -> Result<(), Box<dyn std::error::Error>> {
+fn container_init(rootfs: &str, command: &Vec<String>) -> Result<(), Box<dyn std::error::Error>> {
     // Set hostname
     sethostname("vessel")?;
 
@@ -229,9 +253,22 @@ fn container_init(rootfs: &str, command: &str) -> Result<(), Box<dyn std::error:
         .args(["route", "add", "default", "via", "10.0.0.1"])
         .status()?;
 
+    println!("pid inside namespace: {}", nix::unistd::getpid());
+
     // Exec the command
-    let cmd = CString::new(command).unwrap();
-    execvp(&cmd, &[cmd.clone()])?;
+    let cstrings: Vec<CString> = command
+        .iter()
+        .map(|arg| CString::new(arg.as_str()).unwrap())
+        .collect();
+
+    // execvp(&cstrings[0], &cstrings)?;
+    match execvp(&cstrings[0], &cstrings) {
+    Ok(_) => {}
+    Err(e) => {
+        eprintln!("EXEC FAILED: {}", e);
+        std::process::exit(1);
+    }
+}
 
     exit(1);
 }

@@ -5,4 +5,6 @@ edition = "2024"
 
 [dependencies]
 namespaces = { path = "../namespaces" }
-nix = "0.27"
+storage = { path = "../storage"}
+nix = { version = "0.27", features = ["signal"] }
+uuid = { version = "1", features = ["v4"] }

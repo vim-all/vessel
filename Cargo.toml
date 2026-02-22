@@ -2,7 +2,7 @@
 members = [
     "cmd/vessel",
     "crates/namespaces",
-    "crates/runtime"
-]
+    "crates/runtime", 
+    "crates/storage"]
 
 resolver = "2"
