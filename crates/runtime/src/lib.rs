@@ -6,8 +6,8 @@ use nix::sys::signal::{kill, SIGTERM, SIGKILL};
 use nix::unistd::Pid;
 use std::thread::sleep;
 use std::path::Path;
-use storage::setup_overlay;
-use storage::image_exists;
+use storage::{setup_overlay, image_exists, list_images};
+use nix::mount::{umount2, MntFlags};
 
 pub fn run(image: &str, command: &Vec<String>) -> Result<String, Box<dyn std::error::Error>> {
     if !image_exists(image) {
@@ -117,14 +117,38 @@ pub fn rm(id: &str) -> Result<(), Box<dyn std::error::Error>> {
     let meta = load_metadata(id)?;
 
     if is_process_alive(meta.pid) {
-        return Err(format!("Container {} is still running (PID {}). Stop it first.", id, meta.pid).into());
+        return Err(format!(
+            "Container {} is still running (PID {}). Stop it first.",
+            id, meta.pid
+        ).into());
     }
 
     let dir = container_dir(id);
+    let merged = format!("{}/merged", dir);
+
+    if Path::new(&merged).exists() {
+        if let Err(e) = umount2(merged.as_str(), MntFlags::MNT_DETACH) {
+            eprintln!("Warning: failed to unmount {}: {}", merged, e);
+        }
+    }
+
     if Path::new(&dir).exists() {
         std::fs::remove_dir_all(&dir)?;
     }
 
     println!("Container {} removed", id);
+
     Ok(())
+}
+
+pub fn images() -> Result<Vec<storage::ImageMetadata>, Box<dyn std::error::Error>> {
+    let images = list_images();
+
+    println!("{:<15} {:<10} {}", "NAME", "TAG", "SIZE");
+
+    for img in &images {
+        println!("{:<15} {:<10} {}", img.name, img.tag, img.size);
+    }
+
+    Ok(images)
 }

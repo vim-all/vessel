@@ -94,7 +94,20 @@ fn handle_client(
                         .into_iter()
                         .map(|c| (c.id, c.pid, format!("{:?}", c.state)))
                         .collect();
-                    Response::List(result)
+                    Response::Containers(result)
+                }
+                Err(e) => Response::Error(e.to_string()),
+            }
+        }
+
+        Request::Images => {
+            match runtime::images() {
+                Ok(list) => {
+                    let result = list
+                        .into_iter()
+                        .map(|img| (img.name, img.size, img.tag))
+                        .collect();
+                    Response::Images(result)
                 }
                 Err(e) => Response::Error(e.to_string()),
             }

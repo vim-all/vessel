@@ -7,11 +7,13 @@ pub enum Request {
     Stop { id: String },
     Rm { id: String },
     Logs { id: String },
+    Images,
 }
 
 #[derive(Serialize, Deserialize)]
 pub enum Response {
     Ok(String),
-    List(Vec<(String, i32, String)>),
+    Containers(Vec<(String, i32, String)>),
+    Images(Vec<(String, String, String)>),
     Error(String),
 }

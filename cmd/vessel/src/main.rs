@@ -32,6 +32,7 @@ enum Commands {
     Logs {
         id: String,
     },
+    Images,
 }
 
 fn main() {
@@ -45,6 +46,7 @@ fn main() {
         Commands::Stop { id } => Request::Stop { id },
         Commands::Rm { id } => Request::Rm { id },
         Commands::Logs { id } => Request::Logs { id },
+        Commands::Images => Request::Images,
     };
 
     match send_request(request) {
@@ -77,10 +79,16 @@ fn handle_response(resp: Response) {
         Response::Ok(msg) => {
             println!("{}", msg);
         }
-        Response::List(containers) => {
+        Response::Containers(containers) => {
             println!("{:<40} {:<8} {}", "ID", "PID", "STATE");
             for (id, pid, state) in containers {
                 println!("{:<40} {:<8} {}", id, pid, state);
+            }
+        }
+        Response::Images(images) => {
+            println!("{:<40} {:<8} {}", "NAME", "TAG", "SIZE");
+            for (name, tag, size) in images {
+                println!("{:<40} {:<10} {}", name, tag, size);
             }
         }
         Response::Error(err) => {
