@@ -17,8 +17,7 @@ struct Cli {
 #[derive(Subcommand)]
 enum Commands {
     Run {
-        #[arg(long)]
-        rootfs: String,
+        image: String,
 
         #[arg(required = true, trailing_var_arg = true)]
         command: Vec<String>,
@@ -39,8 +38,8 @@ fn main() {
     let cli = Cli::parse();
 
     let request = match cli.command {
-        Commands::Run { rootfs, command } => {
-            Request::Run { rootfs, command }
+        Commands::Run { image, command } => {
+            Request::Run { image, command }
         }
         Commands::Ps => Request::Ps,
         Commands::Stop { id } => Request::Stop { id },

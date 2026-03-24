@@ -80,8 +80,8 @@ fn handle_client(
     };
 
     let response = match request {
-        Request::Run { rootfs, command } => {
-            match runtime::run(&rootfs, &command) {
+        Request::Run { image, command } => {
+            match runtime::run(&image, &command) {
                 Ok(id) => Response::Ok(id),
                 Err(e) => Response::Error(e.to_string()),
             }

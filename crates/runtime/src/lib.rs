@@ -6,9 +6,16 @@ use nix::sys::signal::{kill, SIGTERM, SIGKILL};
 use nix::unistd::Pid;
 use std::thread::sleep;
 use std::path::Path;
+use storage::setup_overlay;
+use storage::image_exists;
 
-pub fn run(rootfs: &str, command: &Vec<String>) -> Result<String, Box<dyn std::error::Error>> {
+pub fn run(image: &str, command: &Vec<String>) -> Result<String, Box<dyn std::error::Error>> {
+    if !image_exists(image) {
+        return Err(format!("Image '{}' not found", image).into());
+    }
+
     let id = Uuid::new_v4().to_string();
+    let merged_rootfs = setup_overlay(&id, image)?;
 
     // Create the container directory and log file path before spawning
     // so the child can write output there immediately.
@@ -16,12 +23,12 @@ pub fn run(rootfs: &str, command: &Vec<String>) -> Result<String, Box<dyn std::e
     std::fs::create_dir_all(&dir)?;
     let log_path = format!("{}/container.log", dir);
 
-    let pid = spawn(rootfs, command, &log_path)?;
+    let pid = spawn(&merged_rootfs, command, &log_path)?;
 
     let meta = ContainerMetadata {
         id: id.clone(),
         pid,
-        rootfs: rootfs.to_string(),
+        rootfs: merged_rootfs.clone(),
         command: command.join(" "),
         state: ContainerState::Running,
         created_at: SystemTime::now()
