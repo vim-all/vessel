@@ -38,16 +38,16 @@ fn is_process_alive(pid: i32) -> bool {
     Path::new(&format!("/proc/{}", pid)).exists()
 }
 
-pub fn ps() -> Result<(), Box<dyn std::error::Error>> {
+pub fn ps() -> Result<Vec<ContainerMetadata>, Box<dyn std::error::Error>> {
     let containers = list_containers()?;
 
     println!("{:<40} {:<8} {}", "ID", "PID", "STATE");
 
-    for c in containers {
+    for c in &containers {
         println!("{:<40} {:<8} {:?}", c.id, c.pid, c.state);
     }
 
-    Ok(())
+    Ok(containers)
 }
 
 pub fn stop(id: &str) -> Result<(), Box<dyn std::error::Error>> {
@@ -96,13 +96,28 @@ pub fn stop(id: &str) -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-pub fn logs(id: &str) -> Result<(), Box<dyn std::error::Error>> {
+pub fn logs(id: &str) -> Result<String, Box<dyn std::error::Error>> {
     let log_path = format!("{}/container.log", container_dir(id));
     if !Path::new(&log_path).exists() {
-        println!("No logs found for container {}", id);
-        return Ok(());
+        return Ok(format!("No logs found for container {}", id));
     }
     let contents = std::fs::read_to_string(&log_path)?;
     print!("{}", contents);
+    Ok(contents)
+}
+
+pub fn rm(id: &str) -> Result<(), Box<dyn std::error::Error>> {
+    let meta = load_metadata(id)?;
+
+    if is_process_alive(meta.pid) {
+        return Err(format!("Container {} is still running (PID {}). Stop it first.", id, meta.pid).into());
+    }
+
+    let dir = container_dir(id);
+    if Path::new(&dir).exists() {
+        std::fs::remove_dir_all(&dir)?;
+    }
+
+    println!("Container {} removed", id);
     Ok(())
 }

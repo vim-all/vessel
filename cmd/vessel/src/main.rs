@@ -1,8 +1,14 @@
 use clap::{Parser, Subcommand};
-use runtime::{run, ps, stop, logs};
+use std::io::{Read, Write};
+use std::os::unix::net::UnixStream;
+
+use api::{Request, Response};
+
+const SOCKET_PATH: &str = "/run/vessel.sock";
 
 #[derive(Parser)]
 #[command(name = "vessel")]
+#[command(about = "Vessel container runtime CLI")]
 struct Cli {
     #[command(subcommand)]
     command: Commands,
@@ -17,16 +23,14 @@ enum Commands {
         #[arg(required = true, trailing_var_arg = true)]
         command: Vec<String>,
     },
-
     Ps,
-
     Stop {
-        #[arg(required = true)]
         id: String,
     },
-
+    Rm {
+        id: String,
+    },
     Logs {
-        #[arg(required = true)]
         id: String,
     },
 }
@@ -34,20 +38,55 @@ enum Commands {
 fn main() {
     let cli = Cli::parse();
 
-    match cli.command {
+    let request = match cli.command {
         Commands::Run { rootfs, command } => {
-            let id = run(&rootfs, &command)
-                .expect("Failed to run container");
-            println!("Container started successfully with ID: {}", id);
+            Request::Run { rootfs, command }
         }
-        Commands::Ps => {
-            ps().expect("Failed to list containers");
+        Commands::Ps => Request::Ps,
+        Commands::Stop { id } => Request::Stop { id },
+        Commands::Rm { id } => Request::Rm { id },
+        Commands::Logs { id } => Request::Logs { id },
+    };
+
+    match send_request(request) {
+        Ok(response) => handle_response(response),
+        Err(e) => {
+            eprintln!("Error communicating with daemon: {}", e);
+            std::process::exit(1);
         }
-        Commands::Stop { id } => {
-            stop(&id).expect("Failed to stop container");
+    }
+}
+
+fn send_request(req: Request) -> Result<Response, Box<dyn std::error::Error>> {
+    let mut stream = UnixStream::connect(SOCKET_PATH)?;
+
+    let data = serde_json::to_vec(&req)?;
+    stream.write_all(&data)?;
+
+    // Important: shutdown write side so daemon knows request is complete
+    stream.shutdown(std::net::Shutdown::Write)?;
+
+    let mut buffer = Vec::new();
+    stream.read_to_end(&mut buffer)?;
+
+    let response: Response = serde_json::from_slice(&buffer)?;
+    Ok(response)
+}
+
+fn handle_response(resp: Response) {
+    match resp {
+        Response::Ok(msg) => {
+            println!("{}", msg);
         }
-        Commands::Logs { id } => {
-            logs(&id).expect("Failed to read container logs");
+        Response::List(containers) => {
+            println!("{:<40} {:<8} {}", "ID", "PID", "STATE");
+            for (id, pid, state) in containers {
+                println!("{:<40} {:<8} {}", id, pid, state);
+            }
+        }
+        Response::Error(err) => {
+            eprintln!("Daemon error: {}", err);
+            std::process::exit(1);
         }
     }
 }

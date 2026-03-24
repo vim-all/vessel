@@ -1,6 +1,6 @@
 [workspace]
 members = [
-    "cmd/vessel",
+    "cmd/vessel", "cmd/vesseld", "crates/api",
     "crates/namespaces",
     "crates/runtime", 
     "crates/storage"]
