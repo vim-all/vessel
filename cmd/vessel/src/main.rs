@@ -33,6 +33,9 @@ enum Commands {
         id: String,
     },
     Images,
+    Pull {
+        image: String,
+    }
 }
 
 fn main() {
@@ -47,6 +50,10 @@ fn main() {
         Commands::Rm { id } => Request::Rm { id },
         Commands::Logs { id } => Request::Logs { id },
         Commands::Images => Request::Images,
+        Commands::Pull { image } => {
+            println!("Pulling image '{}'...", image);
+            Request::Pull { image }
+        },
     };
 
     match send_request(request) {

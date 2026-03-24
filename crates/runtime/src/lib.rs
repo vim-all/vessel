@@ -6,7 +6,7 @@ use nix::sys::signal::{kill, SIGTERM, SIGKILL};
 use nix::unistd::Pid;
 use std::thread::sleep;
 use std::path::Path;
-use storage::{setup_overlay, image_exists, list_images};
+use storage::{setup_overlay, image_exists, list_images, pull_image};
 use nix::mount::{umount2, MntFlags};
 
 pub fn run(image: &str, command: &Vec<String>) -> Result<String, Box<dyn std::error::Error>> {
@@ -151,4 +151,9 @@ pub fn images() -> Result<Vec<storage::ImageMetadata>, Box<dyn std::error::Error
     }
 
     Ok(images)
+}
+
+pub fn pull(image: &str) -> Result<(), Box<dyn std::error::Error>> {
+    println!("Pulling image '{}'...", image);
+    pull_image(image)
 }

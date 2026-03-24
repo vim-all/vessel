@@ -8,6 +8,7 @@ pub enum Request {
     Rm { id: String },
     Logs { id: String },
     Images,
+    Pull { image: String },
 }
 
 #[derive(Serialize, Deserialize)]

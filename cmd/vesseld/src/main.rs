@@ -133,6 +133,13 @@ fn handle_client(
                 Err(e) => Response::Error(e.to_string()),
             }
         }
+
+        Request::Pull { image } => {
+            match runtime::pull(&image) {
+                Ok(_) => Response::Ok(format!("Image {} pulled", image)),
+                Err(e) => Response::Error(e.to_string()),
+            }
+        }
     };
 
     let _ = send_response(&mut stream, response);
