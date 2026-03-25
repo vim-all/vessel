@@ -4,12 +4,37 @@ use std::fs;
 use std::process::Command;
 use std::time::{SystemTime, UNIX_EPOCH};
 
+const IMAGE_ROOT: &str = "/var/lib/vessel/images";
+
 #[derive(Serialize, Deserialize, Debug)]
 pub struct ImageMetadata {
     pub name: String,
     pub tag: String,
     pub size: String,
     pub created_at: u64,
+    pub layers: Vec<String>,   
+}
+
+#[derive(Deserialize)]
+pub struct ImageManifest {
+    pub layers: Vec<String>,
+}
+
+pub fn get_image_layers(image: &str) -> Result<Vec<String>, Box<dyn std::error::Error>> {
+    let manifest_path = format!("{}/{}/manifest.json", IMAGE_ROOT, image);
+    let data = fs::read_to_string(manifest_path)?;
+
+    let manifest: ImageManifest = serde_json::from_str(&data)?;
+
+    let base = format!("{}/{}/layers", IMAGE_ROOT, image);
+
+    let paths = manifest
+        .layers
+        .iter()
+        .map(|l| format!("{}/{}", base, l))
+        .collect();
+
+    Ok(paths)
 }
 
 pub fn dir_size(path: &Path) -> u64 {
@@ -45,21 +70,21 @@ pub fn format_size(bytes: u64) -> String {
 }
 
 pub fn pull_image(name: &str) -> Result<(), Box<dyn std::error::Error>> {
-    let base = format!("/var/lib/vessel/images/{}", name);
-    let rootfs = format!("{}/rootfs", base);
+    let base = format!("{}/{}", IMAGE_ROOT, name);
+    let layer1 = format!("{}/layers/layer1", base);
 
-    if std::path::Path::new(&rootfs).exists() {
+    // If already exists
+    if Path::new(&layer1).exists() {
         println!("Image '{}' already exists", name);
         return Ok(());
     }
 
-    fs::create_dir_all(&rootfs)?;
+    fs::create_dir_all(&layer1)?;
 
     let tar_path = format!("{}/image.tar.gz", base);
 
     let url = "https://dl-cdn.alpinelinux.org/alpine/latest-stable/releases/x86/alpine-minirootfs-3.23.0-x86.tar.gz";
     
-
     println!("Downloading image...");
 
     Command::new("wget")
@@ -74,28 +99,30 @@ pub fn pull_image(name: &str) -> Result<(), Box<dyn std::error::Error>> {
         .arg("-xzf")
         .arg(&tar_path)
         .arg("-C")
-        .arg(&rootfs)
+        .arg(&layer1)   
         .status()?;
 
-    // Remove tar
     fs::remove_file(&tar_path)?;
 
-    let size = dir_size(Path::new(&rootfs));
+    // Calculate size (entire layers dir)
+    let layers_dir = format!("{}/layers", base);
+    let size = dir_size(Path::new(&layers_dir));
     let size_str = format_size(size);
 
-    // Create manifest
-    let meta = format!(
-        r#"{{
-        "name": "{}",
-        "tag": "latest",
-        "created_at": {},
-        "size": {}
-        }}"#,
-        name,
-        SystemTime::now().duration_since(UNIX_EPOCH)?.as_secs(),size_str
-    );
+    let created_at = SystemTime::now()
+        .duration_since(UNIX_EPOCH)?
+        .as_secs();
 
-    fs::write(format!("{}/manifest.json", base), meta)?;
+    let manifest = ImageMetadata {
+        name: name.to_string(),
+        tag: "latest".to_string(),
+        size: size_str,
+        created_at,
+        layers: vec!["layer1".to_string()],
+    };
+
+    let json = serde_json::to_string_pretty(&manifest)?;
+    fs::write(format!("{}/manifest.json", base), json)?;
 
     println!("Image '{}' pulled successfully", name);
 
@@ -103,14 +130,13 @@ pub fn pull_image(name: &str) -> Result<(), Box<dyn std::error::Error>> {
 }
 
 pub fn list_images() -> Vec<ImageMetadata> {
-    let base = "/var/lib/vessel/images";
     let mut images = Vec::new();
 
-    if !Path::new(base).exists() {
+    if !Path::new(IMAGE_ROOT).exists() {
         return images;
     }
 
-    for entry in fs::read_dir(base).unwrap() {
+    for entry in fs::read_dir(IMAGE_ROOT).unwrap() {
         let entry = entry.unwrap();
         if entry.path().is_dir() {
             let name = entry.file_name().into_string().unwrap();
@@ -124,16 +150,12 @@ pub fn list_images() -> Vec<ImageMetadata> {
 }
 
 pub fn load_image(name: &str) -> Option<ImageMetadata> {
-    let path = format!("/var/lib/vessel/images/{}/manifest.json", name);
+    let path = format!("{}/{}/manifest.json", IMAGE_ROOT, name);
     let data = fs::read_to_string(path).ok()?;
     serde_json::from_str(&data).ok()
 }
 
 pub fn image_exists(image: &str) -> bool {
-    let path = format!("/var/lib/vessel/images/{}/rootfs", image);
+    let path = format!("{}/{}/layers", IMAGE_ROOT, image);
     Path::new(&path).exists()
-}
-
-pub fn get_image_rootfs(image: &str) -> String {
-    format!("/var/lib/vessel/images/{}/rootfs", image)
 }
