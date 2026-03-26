@@ -140,6 +140,13 @@ fn handle_client(
                 Err(e) => Response::Error(e.to_string()),
             }
         }
+
+        Request::Commit { id, image } => {
+            match runtime::commit(&id, &image) {
+                Ok(_) => Response::Ok(format!("Container {} committed as image {}", id, image)),
+                Err(e) => Response::Error(e.to_string()),
+            }
+        }
     };
 
     let _ = send_response(&mut stream, response);

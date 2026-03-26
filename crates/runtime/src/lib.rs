@@ -6,7 +6,7 @@ use nix::sys::signal::{kill, SIGTERM, SIGKILL};
 use nix::unistd::Pid;
 use std::thread::sleep;
 use std::path::Path;
-use storage::{setup_overlay, image_exists, list_images, pull_image};
+use storage::{setup_overlay, image_exists, list_images, pull_image, commit_image};
 use nix::mount::{umount2, MntFlags};
 
 pub fn run(image: &str, command: &Vec<String>) -> Result<String, Box<dyn std::error::Error>> {
@@ -29,6 +29,7 @@ pub fn run(image: &str, command: &Vec<String>) -> Result<String, Box<dyn std::er
         id: id.clone(),
         pid,
         rootfs: merged_rootfs.clone(),
+        image: image.to_string(),
         command: command.join(" "),
         state: ContainerState::Running,
         created_at: SystemTime::now()
@@ -156,4 +157,21 @@ pub fn images() -> Result<Vec<storage::ImageMetadata>, Box<dyn std::error::Error
 pub fn pull(image: &str) -> Result<(), Box<dyn std::error::Error>> {
     println!("Pulling image '{}'...", image);
     pull_image(image)
+}
+
+pub fn commit(id: &str, new_image: &str) -> Result<(), Box<dyn std::error::Error>> {
+    let meta = load_metadata(id)?;
+
+    if is_process_alive(meta.pid) {
+        return Err(format!(
+            "Container {} is still running (PID {}). Stop it first.",
+            id, meta.pid
+        ).into());
+    }
+
+    commit_image(id, new_image)?;
+
+    println!("Container {} committed as image '{}'", id, new_image);
+
+    Ok(())
 }

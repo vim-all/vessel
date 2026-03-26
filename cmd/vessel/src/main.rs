@@ -35,7 +35,11 @@ enum Commands {
     Images,
     Pull {
         image: String,
-    }
+    },
+    Commit {
+        id: String,
+        image: String,
+    },
 }
 
 fn main() {
@@ -54,6 +58,10 @@ fn main() {
             println!("Pulling image '{}'...", image);
             Request::Pull { image }
         },
+        Commands::Commit { id, image } => {
+            println!("Committing container '{}' as image '{}'...", id, image);
+            Request::Commit { id, image }
+        }
     };
 
     match send_request(request) {

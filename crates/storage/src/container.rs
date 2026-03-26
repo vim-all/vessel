@@ -15,6 +15,7 @@ pub struct ContainerMetadata {
     pub id: String,
     pub pid: i32,
     pub rootfs: String,
+    pub image: String,
     pub command: String,
     pub state: ContainerState,
     pub created_at: u64,

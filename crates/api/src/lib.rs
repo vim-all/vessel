@@ -9,6 +9,7 @@ pub enum Request {
     Logs { id: String },
     Images,
     Pull { image: String },
+    Commit { id: String, image: String },
 }
 
 #[derive(Serialize, Deserialize)]
