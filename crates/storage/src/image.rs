@@ -11,6 +11,12 @@ use crate::container::load_metadata;
 const IMAGE_ROOT: &str = "/var/lib/vessel/images";
 const LAYER_ROOT: &str = "/var/lib/vessel/layers";
 
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct ImageConfig {
+    pub cmd: Vec<String>,
+    pub working_dir: String,
+}
+
 #[derive(Serialize, Deserialize, Debug)]
 pub struct ImageMetadata {
     pub name: String,
@@ -18,6 +24,7 @@ pub struct ImageMetadata {
     pub size: String,
     pub created_at: u64,
     pub layers: Vec<String>,
+    pub config: Option<ImageConfig>,
 }
 
 #[derive(Deserialize)]
@@ -215,6 +222,10 @@ pub fn pull_image(name: &str) -> Result<(), Box<dyn std::error::Error>> {
         size: size_str,
         created_at,
         layers: vec![hash],
+        config: Some(ImageConfig {
+            cmd: vec!["/bin/sh".to_string()],
+            working_dir: "/".to_string(),
+        }),
     };
 
     let json = serde_json::to_string_pretty(&manifest)?;
@@ -270,12 +281,20 @@ pub fn commit_image(container_id: &str, new_image: &str) -> Result<(), Box<dyn s
         .sum();
     let size_str = format_size(size);
 
+    let base_img = load_image(&base_image).unwrap();
+
+    let config = base_img.config.clone().unwrap_or(ImageConfig {
+        cmd: vec!["/bin/sh".to_string()],
+        working_dir: "/".to_string(),
+    });
+
     let manifest = ImageMetadata {
         name: new_image.to_string(),
         tag: "latest".to_string(),
         size: size_str,
         created_at: SystemTime::now().duration_since(UNIX_EPOCH)?.as_secs(),
         layers: new_layers,
+        config: Some(config),
     };
 
     let json = serde_json::to_string_pretty(&manifest)?;

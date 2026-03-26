@@ -89,10 +89,8 @@ fn setup_network(pid: i32) -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-pub fn spawn(rootfs: &str, command: &Vec<String>, log_path: &str) -> Result<i32, Box<dyn std::error::Error>> {
-    // Leak the stack so it outlives the parent process in detached mode.
-    // The child runs in a separate process after clone(), so if the parent
-    // returns and frees this Vec, the child would crash.
+pub fn spawn(rootfs: &str, command: &[String], working_dir: Option<String>, log_path: &str) -> Result<i32, Box<dyn std::error::Error>> {
+
     let stack = vec![0u8; STACK_SIZE].into_boxed_slice();
     let stack: &'static mut [u8] = Box::leak(stack);
 
@@ -119,7 +117,7 @@ pub fn spawn(rootfs: &str, command: &Vec<String>, log_path: &str) -> Result<i32,
                     let _ = close(fd);
                 }
 
-                container_init(rootfs, command).unwrap();
+                container_init(rootfs, command, working_dir.clone()).unwrap();
                 0
             }),
             stack,
@@ -143,7 +141,7 @@ pub fn spawn(rootfs: &str, command: &Vec<String>, log_path: &str) -> Result<i32,
     Ok(child.as_raw())
 }
 
-fn container_init(rootfs: &str, command: &Vec<String>) -> Result<(), Box<dyn std::error::Error>> {
+fn container_init(rootfs: &str, command: &[String], working_dir: Option<String>) -> Result<(), Box<dyn std::error::Error>> {
     // Set hostname
     sethostname("vessel")?;
 
@@ -172,6 +170,14 @@ fn container_init(rootfs: &str, command: &Vec<String>) -> Result<(), Box<dyn std
     pivot_root(".", "./old_root")?;
 
     chdir("/")?;
+
+    if let Some(dir) = working_dir {
+    if Path::new(&dir).exists() {
+    chdir(dir.as_str())?;
+    } else {
+        eprintln!("WORKDIR '{}' not found, defaulting to /", dir);
+    }
+}
 
     create_dir_all("/dev")?;
 

@@ -8,29 +8,44 @@ use std::thread::sleep;
 use std::path::Path;
 use storage::{setup_overlay, image_exists, list_images, pull_image, commit_image};
 use nix::mount::{umount2, MntFlags};
+use storage::image::{load_image, ImageConfig};
 
-pub fn run(image: &str, command: &Vec<String>) -> Result<String, Box<dyn std::error::Error>> {
+pub fn run(image: &str, command: &[String]) -> Result<String, Box<dyn std::error::Error>> {
     if !image_exists(image) {
         return Err(format!("Image '{}' not found", image).into());
     }
 
+    let image_meta = load_image(image)
+        .ok_or("Failed to load image metadata")?;
+
+    let config = image_meta.config.unwrap_or(ImageConfig {
+        cmd: vec!["/bin/sh".to_string()],
+        working_dir: "/".to_string(),
+    });
+
+    let final_cmd: Vec<String> = if command.is_empty() {
+        config.cmd.clone()
+    } else {
+        command.to_vec()
+    };
+
+    let working_dir = Some(config.working_dir.clone());
+
     let id = Uuid::new_v4().to_string();
     let merged_rootfs = setup_overlay(&id, image)?;
 
-    // Create the container directory and log file path before spawning
-    // so the child can write output there immediately.
     let dir = container_dir(&id);
     std::fs::create_dir_all(&dir)?;
     let log_path = format!("{}/container.log", dir);
 
-    let pid = spawn(&merged_rootfs, command, &log_path)?;
+    let pid = spawn(&merged_rootfs, &final_cmd, working_dir, &log_path)?;
 
     let meta = ContainerMetadata {
         id: id.clone(),
         pid,
         rootfs: merged_rootfs.clone(),
         image: image.to_string(),
-        command: command.join(" "),
+        command: final_cmd.join(" "), // updated
         state: ContainerState::Running,
         created_at: SystemTime::now()
             .duration_since(UNIX_EPOCH)?

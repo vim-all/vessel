@@ -19,7 +19,7 @@ enum Commands {
     Run {
         image: String,
 
-        #[arg(required = true, trailing_var_arg = true)]
+    #[arg(required = false, num_args = 0.., trailing_var_arg = true)]
         command: Vec<String>,
     },
     Ps,
