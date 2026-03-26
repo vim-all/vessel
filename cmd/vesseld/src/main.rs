@@ -87,6 +87,13 @@ fn handle_client(
             }
         }
 
+        Request::Build { context, image } => {
+            match runtime::build(&context, &image) {
+                Ok(_) => Response::Ok(format!("Image {} built", image)),
+                Err(e) => Response::Error(e.to_string()),
+            }
+        }
+
         Request::Ps => {
             match runtime::ps() {
                 Ok(list) => {

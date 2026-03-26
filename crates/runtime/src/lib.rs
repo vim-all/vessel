@@ -6,6 +6,7 @@ use nix::sys::signal::{kill, SIGTERM, SIGKILL};
 use nix::unistd::Pid;
 use std::thread::sleep;
 use std::path::Path;
+use std::fs;
 use storage::{setup_overlay, image_exists, list_images, pull_image, commit_image};
 use nix::mount::{umount2, MntFlags};
 use storage::image::{load_image, ImageConfig};
@@ -187,6 +188,55 @@ pub fn commit(id: &str, new_image: &str) -> Result<(), Box<dyn std::error::Error
     commit_image(id, new_image)?;
 
     println!("Container {} committed as image '{}'", id, new_image);
+
+    Ok(())
+}
+
+pub fn build(context: &str, image: &str) -> Result<(), Box<dyn std::error::Error>> {
+    let context_path = Path::new(context);
+    if !context_path.exists() || !context_path.is_dir() {
+        return Err(format!("Build context '{}' does not exist or is not a directory", context).into());
+    }
+
+    println!("Starting build for image: {}", image);
+    let keep_alive_cmd = vec!["sleep".to_string(), "infinity".to_string()];
+    let container_id = run("alpine", &keep_alive_cmd)?;
+
+    let merged = format!("{}/merged", container_dir(&container_id));
+
+    let build_result: Result<(), Box<dyn std::error::Error>> = (|| {
+        println!("Copying files from context '{}'...", context);
+        copy_dir_all(context_path, Path::new(&merged))?;
+
+        println!("Stopping temp container {}...", container_id);
+        stop(&container_id)?;
+
+        println!("Committing image '{}'...", image);
+        commit(&container_id, image)?;
+
+        Ok(())
+    })();
+
+    // Cleanup should happen even when build fails midway.
+    let _ = stop(&container_id);
+    let _ = rm(&container_id);
+
+    build_result
+}
+
+fn copy_dir_all(src: &Path, dst: &Path) -> std::io::Result<()> {
+    for entry in fs::read_dir(src)? {
+        let entry = entry?;
+        let path = entry.path();
+        let dest_path = dst.join(entry.file_name());
+
+        if path.is_dir() {
+            fs::create_dir_all(&dest_path)?;
+            copy_dir_all(&path, &dest_path)?;
+        } else {
+            fs::copy(&path, &dest_path)?;
+        }
+    }
 
     Ok(())
 }

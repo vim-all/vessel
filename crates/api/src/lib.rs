@@ -3,6 +3,7 @@ use serde::{Serialize, Deserialize};
 #[derive(Serialize, Deserialize)]
 pub enum Request {
     Run { image: String, command: Vec<String> },
+    Build { context: String, image: String },
     Ps,
     Stop { id: String },
     Rm { id: String },

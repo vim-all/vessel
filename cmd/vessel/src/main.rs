@@ -22,6 +22,11 @@ enum Commands {
     #[arg(required = false, num_args = 0.., trailing_var_arg = true)]
         command: Vec<String>,
     },
+    Build {
+        image: String,
+        #[arg(default_value = ".")]
+        context: String,
+    },
     Ps,
     Stop {
         id: String,
@@ -48,6 +53,16 @@ fn main() {
     let request = match cli.command {
         Commands::Run { image, command } => {
             Request::Run { image, command }
+        }
+        Commands::Build { image, context } => {
+            let context = match std::fs::canonicalize(&context) {
+                Ok(path) => path.to_string_lossy().to_string(),
+                Err(e) => {
+                    eprintln!("Invalid build context '{}': {}", context, e);
+                    std::process::exit(1);
+                }
+            };
+            Request::Build { context, image }
         }
         Commands::Ps => Request::Ps,
         Commands::Stop { id } => Request::Stop { id },
